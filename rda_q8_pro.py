@@ -561,19 +561,21 @@ class AIAgent:
     
     def analyze(self, query: str, df: pd.DataFrame) -> str:
         """
-        Analyze data using AI with optimized context
+        Analyze data using AI with FULL dataset access
         
-        Instead of sending the entire CSV, we send:
-        1. Summary statistics
-        2. Sample data
-        3. Column descriptions
+        Sends the complete dataset to Gemini (up to 2000 rows)
+        Gemini 1.5 Flash has 1M token context - can handle this easily!
         """
         try:
-            # Prepare optimized context
-            context = self._prepare_analysis_context(df)
+            # Limit to max rows for safety
+            df_limited = df.head(Config.MAX_ROWS_FOR_AI)
             
-            # Build prompt
-            prompt = self._build_analysis_prompt(query, context)
+            # Convert entire dataframe to CSV format
+            # This gives AI complete visibility into all data
+            full_csv_data = df_limited.to_csv(index=False)
+            
+            # Build prompt with full data
+            prompt = self._build_full_data_prompt(query, full_csv_data, len(df))
             
             # Generate response
             response = self.model.generate_content(prompt)
@@ -589,6 +591,41 @@ class AIAgent:
             
         except Exception as e:
             return f"❌ Errore AI: {str(e)}"
+    
+    def _build_full_data_prompt(self, query: str, csv_data: str, total_rows: int) -> str:
+        """Build prompt with complete dataset in CSV format"""
+        
+        prompt = f"""Sei un Senior Data Analyst specializzato in analisi RDA (Richieste di Assistenza) per Q8 Italia.
+
+HAI ACCESSO ALL'INTERO DATASET in formato CSV qui sotto.
+Il dataset contiene {total_rows} righe totali (mostrate tutte qui sotto se ≤ 2000 righe).
+
+DATI COMPLETI IN FORMATO CSV:
+```csv
+{csv_data}
+```
+
+DOMANDA UTENTE:
+{query}
+
+ISTRUZIONI:
+1. Leggi TUTTI i dati CSV forniti sopra
+2. Esegui i calcoli o filtri necessari per rispondere
+3. Rispondi in modo preciso e professionale
+4. Usa numeri e statistiche dai dati reali
+5. Se devi contare, filtrare o aggregare, fallo su TUTTI i dati
+6. Mantieni un tono professionale ma accessibile
+7. Formatta la risposta in modo chiaro con intestazioni e punti elenco dove appropriato
+8. Quando dici "X ticket fuori SLA", conta TUTTE le righe dove la colonna corrisponde
+
+IMPORTANTE: 
+- La colonna "fuori_sla" o "is_fuori_sla" contiene "Sì" o "No"
+- Conta TUTTE le righe, non solo un campione
+- Se chiedo "chi ha più X", devi raggruppare e contare TUTTI i dati
+
+RISPOSTA:"""
+        
+        return prompt
     
     def _prepare_analysis_context(self, df: pd.DataFrame) -> Dict:
         """Prepare optimized data context for AI"""
