@@ -596,13 +596,43 @@ class AIAgent:
         # Limit rows
         df_sample = df.head(Config.MAX_ROWS_FOR_AI)
         
+        # Helper function to convert pandas values to JSON-serializable types
+        def make_serializable(obj):
+            if pd.isna(obj):
+                return None
+            elif isinstance(obj, (pd.Timestamp, datetime)):
+                return str(obj)
+            elif isinstance(obj, (int, float, str, bool)):
+                return obj
+            else:
+                return str(obj)
+        
+        # Get date range safely
+        date_min = None
+        date_max = None
+        if 'data_apertura' in df.columns:
+            try:
+                date_min = df['data_apertura'].min()
+                date_max = df['data_apertura'].max()
+                if pd.notna(date_min):
+                    date_min = str(date_min)
+                else:
+                    date_min = None
+                if pd.notna(date_max):
+                    date_max = str(date_max)
+                else:
+                    date_max = None
+            except:
+                date_min = None
+                date_max = None
+        
         context = {
             'metadata': {
                 'total_rows': len(df),
                 'columns': list(df.columns),
                 'date_range': {
-                    'min': str(df['data_apertura'].min()) if 'data_apertura' in df.columns else None,
-                    'max': str(df['data_apertura'].max()) if 'data_apertura' in df.columns else None
+                    'min': date_min,
+                    'max': date_max
                 }
             },
             'summary_stats': {
@@ -612,9 +642,9 @@ class AIAgent:
                 'open_tickets': int(len(df[df['stato_calcolato'] == 'APERTO'])) if 'stato_calcolato' in df.columns else 0,
                 'closed_tickets': int(len(df[df['stato_calcolato'] == 'CHIUSO'])) if 'stato_calcolato' in df.columns else 0,
             },
-            'top_vendors': df.groupby('ditta')['costo_totale'].sum().nlargest(10).to_dict() if 'ditta' in df.columns else {},
-            'top_points': df['punto_vendita'].value_counts().head(10).to_dict() if 'punto_vendita' in df.columns else {},
-            'sample_data': df_sample.to_dict('records')[:50]  # First 50 rows as sample
+            'top_vendors': {k: float(v) for k, v in df.groupby('ditta')['costo_totale'].sum().nlargest(10).to_dict().items()} if 'ditta' in df.columns else {},
+            'top_points': {str(k): int(v) for k, v in df['punto_vendita'].value_counts().head(10).to_dict().items()} if 'punto_vendita' in df.columns else {},
+            'sample_data': [{k: make_serializable(v) for k, v in row.items()} for row in df_sample.to_dict('records')[:50]]
         }
         
         return context
